@@ -11,3 +11,4 @@ serde = { version = "1.0.126", features = ["derive"] }
 csv = "1.1.6"
 rust_decimal = "1.14.1"
 rust_decimal_macros = "1.14.1"
+structopt = "0.3.21"
