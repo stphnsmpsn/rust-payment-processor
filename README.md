@@ -19,17 +19,17 @@ formatted with `cargo fmt`. It has also been run with `cargo-valgrind` against v
 ## Usage
 
 To process a CSV formatted list of transactions, simply run the application as follows:
-```
+```shell
 cargo run -- sample-input/transactions.csv
 ``` 
 
 If you wish to pipe your output to a file, you may do so by: 
-```
+```shell
 cargo run -- sample-input/transactions.csv > accounts.csv
 ``` 
 
 To run the tests, run:
-```
+```shell
 cargo test
 ```
 ### Input Data Format
@@ -46,7 +46,7 @@ This simple payment processor takes in CSV formatted data with the following col
 An example data set containing only deposits and withdrawals is shown below. More data sets can be found in the 
 repo under 'sample-input'.
 
-```
+```csv
 type,       client, tx, amount
 deposit,    1,      1,  1.0
 deposit,    2,      2,  2.0
@@ -66,7 +66,7 @@ A few points on CSV formatting:
 
 This crate uses an env-logger; by default log messages of type `error` will be written to stderr. You can control the
 log level through the use of environment variables as described below:
-```
+```shell
 RUST_LOG=off cargo run sample-input/transactions.csv
 ```
 
@@ -76,6 +76,57 @@ Valid levels for `RUST_LOG` are:
 * info
 * debug
 * trace
+
+## Core Dependencies
+
+### SERDE
+
+Serde is a framework for serializing and deserializing Rust data structures efficiently and generically. To learn 
+more, check it out on crates.io [here](https://crates.io/crates/serde).
+
+Using SERDE allows me to define a `Transaction` struct as shown below and simply derive the functionality needed
+to serialize / deserialize it. Since the CSV crate provides support for SERDE, using them in common allows very
+readable (maintainable) code and reduces boilerplate. 
+
+Serde also provides support for enumerations (internally tagged, externally tagged, and untagged). This allows me 
+to be confident that a Transaction that was deserialized properly definitely has valid data for all of the types 
+within the struct. 
+
+Note: Below, I derived the functionality for both Serialize and Deserialize even though I do not serialize transactions.
+That's ok; in Rust, we only pay for what we use and since I do not use this functionality, I don't incur any additional
+overhead for including it here. 
+
+```rust
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+struct Transaction {
+    #[serde(rename = "type")]
+    kind: TransactionType,
+    client: u16,
+    tx: u32,
+    amount: Option<Decimal>,
+    #[serde(default)]
+    under_dispute: bool,
+}
+```
+
+### Decimal
+
+A Decimal implementation written in pure Rust suitable for financial calculations that require significant integral 
+and fractional digits with no round-off errors. To learn more, check it out on crates.io
+[here](https://crates.io/crates/rust_decimal).
+
+The rust_decimal crate is really great. Not only does it provide data types suitable for financial calculations, but 
+it also provides functions to normalize and round (according to various rounding schemes) our data. Additionally,
+rust_decimal_macros provides some super useful macros to make creating Decimals very easy. 
+
+The Decimal data type also supports all common arithmetic operations out of the box. 
+
+### CSV
+
+A fast and flexible CSV reader and writer for Rust, with support for Serde. To learn more, check it out on crates.io
+[here](https://crates.io/crates/csv).
+
+The CSV crate makes dealing with CSV data a snap. Especially with how nicely it plays with SERDE. 
 
 ## Future Improvements
 
