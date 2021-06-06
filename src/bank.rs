@@ -80,8 +80,12 @@ impl Account {
         if self.locked {
             return Err(BankingError::AccountLocked);
         }
+
+        debug!("Pre-deposit: {:?}", self);
         self.available += amount;
         self.total += amount;
+        debug!("Post-deposit: {:?}", self);
+
         Ok(())
     }
 
@@ -97,8 +101,11 @@ impl Account {
             return Err(BankingError::InsufficientFunds);
         }
 
+        debug!("Pre-withdrawal: {:?}", self);
         self.available -= amount;
         self.total -= amount;
+        debug!("Post-withdrawal: {:?}", self);
+
         Ok(())
     }
 
@@ -109,8 +116,10 @@ impl Account {
             return Err(BankingError::AccountLocked);
         }
 
+        debug!("Pre-dispute: {:?}", self);
         self.available -= amount;
         self.held += amount;
+        debug!("Post-dispute: {:?}", self);
 
         Ok(())
     }
@@ -121,8 +130,10 @@ impl Account {
             return Err(BankingError::AccountLocked);
         }
 
+        debug!("Pre-resolve: {:?}", self);
         self.held -= amount;
         self.available += amount;
+        debug!("Post-resolve: {:?}", self);
 
         Ok(())
     }
@@ -135,9 +146,11 @@ impl Account {
             return Err(BankingError::AccountLocked);
         }
 
+        debug!("Pre-chargeback: {:?}", self);
         self.total -= amount;
         self.held -= amount;
         self.locked = true;
+        debug!("Post-chargeback: {:?}", self);
 
         Ok(())
     }
@@ -317,8 +330,8 @@ impl Bank {
         for result in reader.deserialize() {
             if let Ok(transaction) = result {
                 match self.process_transaction(transaction) {
-                    Err(_e) => {
-                        // TODO: Implement error handling, logging, etc...
+                    Err(e) => {
+                        error!("Failed to process transaction. Aborted with error: {:?}", e);
                     }
                     _ => {}
                 }
@@ -338,7 +351,9 @@ impl Bank {
         let mut wtr = csv::WriterBuilder::new().from_writer(io::stdout());
         for account in &self.accounts {
             match wtr.serialize(account.1) {
-                Err(_e) => { /* TODO: handle error */ }
+                Err(e) => {
+                    error!("Failed to print account. Aborted with error: {:?}", e);
+                }
                 _ => {}
             }
         }
@@ -373,6 +388,7 @@ impl Bank {
     ///
     /// This function can return several errors but all are BankingError variants.
     fn process_transaction(&mut self, mut transaction: Transaction) -> Result<(), BankingError> {
+        debug!("Processing Transaction: {:?}", transaction);
         match transaction.kind {
             ////////////////////////////////////////////////////////////////////////////////
             TransactionType::Deposit => {
