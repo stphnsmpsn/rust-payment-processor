@@ -4,7 +4,8 @@
 //!
 //! All transactions are performed using fixed precision data types as floating point types are not
 //! suitable for financial calculations. Any amounts containing more than four digits of precision
-//! after the decimal will be normalized to four digits of precision after the decimal.
+//! after the decimal will be rounded to four digits of precision after the decimal using
+//! "Bankers Rounding" rules. e.g. 6.5 -> 6, 7.5 -> 8.
 //!
 //! The `Decimal` data type has a max value of 4_294_967_295 with 19 digits of precision after the
 //! decimal.
@@ -50,7 +51,7 @@ use std::io;
 
 const DECIMAL_PLACES: u32 = 4;
 
-//region account
+//region Account
 /// `Account` contains a structured representation of an account
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 struct Account {
@@ -110,6 +111,7 @@ impl Account {
 
         self.available -= amount;
         self.held += amount;
+
         Ok(())
     }
 
@@ -121,6 +123,7 @@ impl Account {
 
         self.held -= amount;
         self.available += amount;
+
         Ok(())
     }
 
@@ -135,6 +138,7 @@ impl Account {
         self.total -= amount;
         self.held -= amount;
         self.locked = true;
+
         Ok(())
     }
 }
@@ -199,30 +203,64 @@ impl Transaction {
 
     /// Determines if a transaction is valid. A valid transaction must be for an amount greater
     /// than 0 for deposits and withdrawals. In time, I would probably favor implementing a custom
-    /// deserializer over using this approach, but for now, this is fine.
-    fn is_valid(&self) -> bool {
-        return match self.amount {
-            Some(amount) => {
-                if amount > dec![0] {
-                    true
+    /// deserializer to take responsibility of this functionality, but for now, this is fine.
+    fn validate(&mut self) -> Result<(), BankingError> {
+        match self.kind {
+            TransactionType::Deposit | TransactionType::Withdrawal => {
+                if let Some(amount) = self.amount {
+                    if amount <= dec![0] {
+                        return Err(BankingError::InvalidTransaction);
+                    }
                 } else {
-                    false
+                    return Err(BankingError::InvalidTransaction);
                 }
             }
-            None => {
-                return match self.kind {
-                    TransactionType::Dispute => true,
-                    TransactionType::Resolve => true,
-                    TransactionType::Chargeback => true,
-                    _ => false,
+            _ => {}
+        }
+
+        self.round_to(DECIMAL_PLACES);
+        Ok(())
+    }
+
+    /// Disputes, resolves, and chargebacks all reference a previous transaction. This function
+    /// validates that the incoming dispute, resolve, or chargeback is valid.
+    /// In order to be valid:
+    /// 1. the referenced transaction type must be `TransactionType::Deposit`
+    /// 2. the referenced transaction client must match that of the current transaction
+    /// 3. a resolve or chargeback can only occur if the transaction is under dispute
+    /// 4. a dispute should not be processed if that transaction is already under dispute
+    fn validate_against_stored(&mut self, stored_transaction: &mut Transaction) -> Result<(), BankingError> {
+        match self.kind {
+            TransactionType::Dispute => {
+                if stored_transaction.kind != TransactionType::Deposit {
+                    return Err(BankingError::InvalidTransaction);
+                }
+                if self.client != stored_transaction.client {
+                    return Err(BankingError::ClientMismatch);
+                }
+                if stored_transaction.under_dispute {
+                    return Err(BankingError::DuplicateDisputeRequest);
                 }
             }
-        };
+            TransactionType::Resolve | TransactionType::Chargeback => {
+                if stored_transaction.kind != TransactionType::Deposit {
+                    return Err(BankingError::InvalidTransaction);
+                }
+                if self.client != stored_transaction.client {
+                    return Err(BankingError::ClientMismatch);
+                }
+                if !stored_transaction.under_dispute {
+                    return Err(BankingError::UndisputedTransaction);
+                }
+            }
+            _ => {}
+        }
+        Ok(())
     }
 }
 //endregion
 
-//region bank
+//region Bank
 #[derive(Debug, PartialEq)]
 enum BankingError {
     /// Returned if a transaction fails validation upon entering the processing function
@@ -309,11 +347,7 @@ impl Bank {
     /// Returns the account for the specified client id, creating it if it does not exist.
     /// In the event the account is locked due to a chargeback, or the creation of a new
     /// account fails, this function returns an appropriate error.
-    fn retrieve_account(
-        client: u16,
-        accounts: &mut HashMap<u16, Account>,
-        create: bool,
-    ) -> Result<&mut Account, BankingError> {
+    fn retrieve_account(client: u16, accounts: &mut HashMap<u16, Account>, create: bool) -> Result<&mut Account, BankingError> {
         if create {
             if !accounts.contains_key(&client) {
                 accounts.insert(client, Account::new(client));
@@ -327,10 +361,7 @@ impl Bank {
 
     /// Returns the transaction associated with the specified ID. If no transaction
     /// can be found by this ID, this function returns an appropriate error.
-    fn retrieve_transaction(
-        tx_id: u32,
-        transactions: &mut HashMap<u32, Transaction>,
-    ) -> Result<&mut Transaction, BankingError> {
+    fn retrieve_transaction(tx_id: u32, transactions: &mut HashMap<u32, Transaction>) -> Result<&mut Transaction, BankingError> {
         return match transactions.get_mut(&tx_id) {
             Some(transaction) => Ok(transaction),
             None => Err(BankingError::NoSuchTransaction),
@@ -342,17 +373,10 @@ impl Bank {
     ///
     /// This function can return several errors but all are BankingError variants.
     fn process_transaction(&mut self, mut transaction: Transaction) -> Result<(), BankingError> {
-        // Check if the transaction is valid
-        if !transaction.is_valid() {
-            return Err(BankingError::InvalidTransaction);
-        }
-
-        // Normalize the value to four decimal places
-        transaction.round_to(DECIMAL_PLACES);
-
         match transaction.kind {
             ////////////////////////////////////////////////////////////////////////////////
             TransactionType::Deposit => {
+                transaction.validate()?;
                 if self.transactions.contains_key(&transaction.tx) {
                     return Err(BankingError::DuplicateTransactionId);
                 }
@@ -363,6 +387,7 @@ impl Bank {
             }
             ////////////////////////////////////////////////////////////////////////////////
             TransactionType::Withdrawal => {
+                transaction.validate()?;
                 if self.transactions.contains_key(&transaction.tx) {
                     return Err(BankingError::DuplicateTransactionId);
                 }
@@ -374,12 +399,7 @@ impl Bank {
             ////////////////////////////////////////////////////////////////////////////////
             TransactionType::Dispute => {
                 let mut stored_transaction = Bank::retrieve_transaction(transaction.tx, &mut self.transactions)?;
-                if stored_transaction.client != transaction.client {
-                    return Err(BankingError::ClientMismatch);
-                }
-                if stored_transaction.under_dispute {
-                    return Err(BankingError::DuplicateDisputeRequest);
-                }
+                transaction.validate_against_stored(stored_transaction)?;
                 let account = Bank::retrieve_account(transaction.client, &mut self.accounts, false)?;
                 account.dispute(&stored_transaction.amount.unwrap_or_else(|| dec!(0)))?;
                 stored_transaction.under_dispute = true;
@@ -388,12 +408,7 @@ impl Bank {
             ////////////////////////////////////////////////////////////////////////////////
             TransactionType::Resolve => {
                 let mut stored_transaction = Bank::retrieve_transaction(transaction.tx, &mut self.transactions)?;
-                if stored_transaction.client != transaction.client {
-                    return Err(BankingError::ClientMismatch);
-                }
-                if !stored_transaction.under_dispute {
-                    return Err(BankingError::UndisputedTransaction);
-                }
+                transaction.validate_against_stored(stored_transaction)?;
                 let account = Bank::retrieve_account(transaction.client, &mut self.accounts, false)?;
                 account.resolve(&stored_transaction.amount.unwrap_or_else(|| dec!(0)))?;
                 stored_transaction.under_dispute = false;
@@ -402,12 +417,7 @@ impl Bank {
             ////////////////////////////////////////////////////////////////////////////////
             TransactionType::Chargeback => {
                 let mut stored_transaction = Bank::retrieve_transaction(transaction.tx, &mut self.transactions)?;
-                if stored_transaction.client != transaction.client {
-                    return Err(BankingError::ClientMismatch);
-                }
-                if !stored_transaction.under_dispute {
-                    return Err(BankingError::UndisputedTransaction);
-                }
+                transaction.validate_against_stored(stored_transaction)?;
                 let account = Bank::retrieve_account(transaction.client, &mut self.accounts, false)?;
                 account.chargeback(&stored_transaction.amount.unwrap_or_else(|| dec!(0)))?;
                 stored_transaction.under_dispute = false;
@@ -418,7 +428,7 @@ impl Bank {
 }
 //endregion
 
-//region tests
+//region Tests
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -431,6 +441,7 @@ mod tests {
     const _FOUR: u32 = 4;
     const FIVE: u32 = 5;
 
+    //region Transaction Test Implementation
     // some utility functions to easily make create Transaction objects without cluttering test bodies
     impl Transaction {
         fn make(kind: TransactionType, client: u16, tx: u32, amount: u32, under_dispute: bool) -> Transaction {
@@ -483,6 +494,7 @@ mod tests {
             }
         }
     }
+    //endregion
 
     #[test]
     fn deposit_valid_transaction_returns_ok_and_adds_to_account() -> Result<(), BankingError> {
@@ -884,6 +896,33 @@ mod tests {
         let result = bank.process_transaction(tx2);
 
         assert_eq!(expected_transaction, *bank.transactions.get(&ONE).unwrap());
+        assert_eq!(expected_account, *bank.accounts.get(&(ONE as u16)).unwrap());
+        assert_eq!(expected_result, result.unwrap_err());
+        // TEARDOWN
+        Ok(())
+    }
+
+    #[test]
+    fn dispute_withdrawal_returns_invalid_transaction() -> Result<(), BankingError> {
+        // SETUP
+        let expected_result = BankingError::InvalidTransaction;
+        let expected_account = Account {
+            client: ONE as u16,
+            available: Decimal::from(ZERO),
+            total: Decimal::from(ZERO),
+            held: Decimal::from(ZERO),
+            locked: false,
+        };
+        let mut bank = Bank::new();
+        let tx1 = Transaction::make(TransactionType::Deposit, ONE as u16, ONE, FIVE, false);
+        let tx2 = Transaction::make(TransactionType::Withdrawal, ONE as u16, TWO, FIVE, false);
+        let tx3 = Transaction::make_dispute(ONE as u16, TWO);
+
+        // TEST
+        bank.process_transaction(tx1)?;
+        bank.process_transaction(tx2)?;
+        let result = bank.process_transaction(tx3);
+
         assert_eq!(expected_account, *bank.accounts.get(&(ONE as u16)).unwrap());
         assert_eq!(expected_result, result.unwrap_err());
         // TEARDOWN

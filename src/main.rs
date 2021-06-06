@@ -11,10 +11,7 @@ struct Cli {
 fn main() {
     let args = Cli::from_args();
     let mut bank = Bank::new();
-    if let Ok(mut reader) = csv::ReaderBuilder::new()
-        .trim(csv::Trim::All)
-        .from_path(args.input_file)
-    {
+    if let Ok(mut reader) = csv::ReaderBuilder::new().trim(csv::Trim::All).from_path(args.input_file) {
         bank.process_record_set(&mut reader);
         bank.print_accounts();
     }
