@@ -1,0 +1,4 @@
+type, client, tx, amount
+deposit, 2, 1, 2.0
+dispute, 2, 1,
+resolve, 2, 1,
