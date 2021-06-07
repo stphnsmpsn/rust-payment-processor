@@ -155,11 +155,12 @@ With CSV parsing sped up, the next thing we can look at is threading. It may mak
 (or more) processing threads. The reader thread will simply read ByteRecords records from CSV and place the deserialized
 `Transaction` at the tail of a queue. The processing thread will take items from the head of the queue and process them. 
 
-Depending on requirements, we could also choose to prioritize certain types of transactions. Deposits and withdrawals 
-likely happen significantly more often than disputes, resolves, and chargebacks which are not likely to be issued for 
-quite some time after a deposit. For this reason, we could split the processing into two queues; one for deposits and 
-withdrawals, and the other for disputes. The dispute processing thread could sleep, waking to process `Transactions` in
-its queue on some interval. 
+As an extension of this, we could increase the number of processing threads and separate incoming transactions into 
+two or more queues (by type) allowing us to prioritize certain transaction types. Initially, my thought is to have 
+one queue for deposits/withdrawals and another for disputes, resolves, and chargebacks where processing threads 
+prioritize handling disputes / chargebacks. It should be noted that we would need to determine up front how we would
+handle the case where pending transactions are backed up and a dispute comes in before its associated deposit 
+has been processed.
 
 #### Branch Prediction and Cache Optimization 
 
