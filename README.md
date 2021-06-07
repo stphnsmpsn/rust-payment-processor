@@ -1,4 +1,5 @@
 # rust-payment-processor
+
 A basic payment processor, written in Rust
 
 This payment processor is a simple rust crate generated using `cargo init`.
@@ -129,6 +130,34 @@ A fast and flexible CSV reader and writer for Rust, with support for Serde. To l
 The CSV crate makes dealing with CSV data a snap. Especially with how nicely it plays with SERDE. 
 
 ## Future Improvements
+
+### Performance Improvements
+
+Intuition tells me that the current bottleneck of the applications is likely be the reading of records from CSV and 
+possibly the parsing of these records into the `Transaction` struct. Once this is addressed, we can look at 
+executing tasks in parallel and possibly even prioritizing certain types of transactions.
+
+#### CSV Parsing
+
+In order to speed up the CSV parsing, I would first follow the advice [here](https://docs.rs/csv/1.0.0/csv/tutorial/index.html#performance).
+An effort should be made to amortize allocations and avoid UTF-8 checks by reading and writing ByteRecords instead of
+StringRecords. Any `str`s will now be `&[u8]`s, so we lose the API around Strings, but in the interest or performance
+that could be a worthwhile tradeoff. At this stage we should also profile the performance of deserializing a CSV byte
+record into a `Transaction` struct and determine if it is worth implementing a custom deserializer. 
+
+#### Parallelization 
+
+With CSV parsing sped up, the next thing we can look at is threading. It may make sense to have a reader thread and one 
+(or more) processing threads. The reader thread will simply read ByteRecords records from CSV and place the deserialized
+`Transaction` at the tail of a queue. The processing thread will take items from the head of the queue and process them. 
+
+Depending on requirements, we could also choose to prioritize certain types of transactions. Deposits and withdrawals 
+likely happen significantly more often than disputes, resolves, and chargebacks and are not likely to be issued for quite
+some time after a deposit. For this reason, we could split the processing into two queues; one for deposits and 
+withdrawals, and the other for disputes. The dispute processing thread could sleep, waking to process `Transactions` in
+its queue on some interval. 
+
+### General Improvements 
 
 In the future, I will consider implementing making the following improvements: 
 
