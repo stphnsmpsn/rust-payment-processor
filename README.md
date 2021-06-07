@@ -138,7 +138,8 @@ possibly the parsing of these records into the `Transaction` struct. Once this i
 executing tasks in parallel and possibly even prioritizing certain types of transactions.
 
 Having said that, profiling the application against large data sets prior to optimization and having a clear requirement
-in mind is key to avoiding the trap of premature optimization. 
+in mind is key to avoiding the trap of premature optimization. This approach also allows us to focus our efforts and 
+measure our improvement. 
 
 #### CSV Parsing
 
