@@ -4,6 +4,7 @@ use log::{error, info};
 use structopt::StructOpt;
 #[macro_use]
 extern crate log;
+use env_logger::Env;
 
 #[derive(StructOpt, Debug)]
 struct Cli {
@@ -12,7 +13,7 @@ struct Cli {
 }
 
 fn main() {
-    env_logger::init();
+    env_logger::Builder::from_env(Env::default().default_filter_or("off")).init();
     info!("Rust Payment Processor Started");
     let args = Cli::from_args();
     let mut bank = Bank::new();
