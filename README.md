@@ -152,8 +152,8 @@ With CSV parsing sped up, the next thing we can look at is threading. It may mak
 `Transaction` at the tail of a queue. The processing thread will take items from the head of the queue and process them. 
 
 Depending on requirements, we could also choose to prioritize certain types of transactions. Deposits and withdrawals 
-likely happen significantly more often than disputes, resolves, and chargebacks and are not likely to be issued for quite
-some time after a deposit. For this reason, we could split the processing into two queues; one for deposits and 
+likely happen significantly more often than disputes, resolves, and chargebacks which are not likely to be issued for 
+quite some time after a deposit. For this reason, we could split the processing into two queues; one for deposits and 
 withdrawals, and the other for disputes. The dispute processing thread could sleep, waking to process `Transactions` in
 its queue on some interval. 
 
