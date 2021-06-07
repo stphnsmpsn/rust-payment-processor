@@ -137,6 +137,9 @@ Intuition tells me that the current bottleneck of the applications is likely be 
 possibly the parsing of these records into the `Transaction` struct. Once this is addressed, we can look at 
 executing tasks in parallel and possibly even prioritizing certain types of transactions.
 
+Having said that, profiling the application against large data sets prior to optimization and having a clear requirement
+in mind is key to avoiding the trap of premature optimization. 
+
 #### CSV Parsing
 
 In order to speed up the CSV parsing, I would first follow the advice [here](https://docs.rs/csv/1.0.0/csv/tutorial/index.html#performance).
@@ -157,17 +160,18 @@ quite some time after a deposit. For this reason, we could split the processing 
 withdrawals, and the other for disputes. The dispute processing thread could sleep, waking to process `Transactions` in
 its queue on some interval. 
 
+#### Branch Prediction and Cache Optimization 
+
+Lastly, we can leverage tools such as Callgrind and KCacheGrind to identify possible bottlenecks caused by 
+branch prediction / cache misses. Optimization here should focus on the 'hot path' as optimization handling of edge
+cases will not generally yield any significant improvement. 
+
 ### General Improvements 
 
-In the future, I will consider implementing making the following improvements: 
+In addition to the above mentioned performance improvements, I will consider implementing making the following 
+improvements: 
 
-1. Implementing a custom deserializer for transactions to eliminate the need to check for
-negative amounts.
-2. Cleaning up the tests.
-3. Profiling the application against large data sets.
-4. Running Valgrind, Callgrind and KCacheGrind with much larger data sets to identify possible
-   bottlenecks caused by branch prediction / cache misses.
-5. Cache optimization (if analysis warrants it).
-6. Supporting various input data formats.
-7. Non-volatile storage, likely in a relational database.    
-8. Creating a CI pipeline that runs an automated suite of tests on every PR and merge to devel/main branches. 
+1. Clean up the tests.
+2. Support various input data formats.
+3. Add non-volatile storage, likely in a relational database.
+4. Create a CI pipeline that runs an automated suite of tests on every PR and merge to devel/main branches. 
